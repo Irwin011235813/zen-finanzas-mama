@@ -30,6 +30,22 @@ const fmt = (n) =>
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString("es-AR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
+// ─── Tooltip fijo (no flotante) ──────────────────────────────────────────────
+function FixedTooltip({ data }) {
+  if (!data) return (
+    <div className="h-8 mb-1" />
+  );
+  return (
+    <div className="flex items-center justify-center gap-2 mb-1 h-8">
+      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: data.color }} />
+      <span className="font-bold text-gray-700 text-sm">{data.name}</span>
+      <span className="font-black text-sm" style={{ color: data.color }}>
+        {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(data.value)}
+      </span>
+    </div>
+  );
+}
+
 // ─── Balance card ─────────────────────────────────────────────────────────────
 function BalanceCard({ summary }) {
   const { balance, totalIncome, totalDebts, totalExpenses } = summary;
@@ -143,9 +159,10 @@ function History({ expenses, onDelete }) {
 export default function Dashboard() {
   const { summary, chartData, expenses, loading, error, addExpense, deleteExpense } = useExpenses();
 
-  const [activeCat, setActiveCat] = useState(null);
-  const [saving,    setSaving]    = useState(false);   // FIX: evita doble tap
-  const [toast,     setToast]     = useState(null);
+  const [activeCat,    setActiveCat]    = useState(null);
+  const [saving,       setSaving]       = useState(false);
+  const [toast,        setToast]        = useState(null);
+  const [hoveredSlice, setHoveredSlice] = useState(null);
 
   const showToast = (message, isError = false) => {
     setToast({ message, isError });
@@ -197,8 +214,11 @@ export default function Dashboard() {
       {/* Balance */}
       <BalanceCard summary={summary} />
 
-      {/* Gráfico — FIX: sin Tooltip para evitar superposición con etiqueta central */}
-      <div className="relative h-52 w-full my-2">
+      {/* Tooltip fijo arriba del gráfico — sin superposición */}
+      <FixedTooltip data={hoveredSlice} />
+
+      {/* Gráfico */}
+      <div className="relative h-52 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -210,36 +230,17 @@ export default function Dashboard() {
               strokeWidth={0}
               animationBegin={0}
               animationDuration={500}
+              onMouseEnter={(data) => setHoveredSlice(data)}
+              onMouseLeave={() => setHoveredSlice(null)}
             >
               {(hasData ? enrichedChart : [{ color: "#f3f4f6" }]).map((e, i) => (
                 <Cell key={i} fill={e.color} />
               ))}
             </Pie>
-            <Tooltip
-              content={({ active, payload }) => {
-                if (!active || !payload?.length) return null;
-                const d = payload[0].payload;
-                if (!d.name) return null;
-                return (
-                  <div style={{
-                    background: "white",
-                    border: `2px solid ${d.color}`,
-                    borderRadius: 12,
-                    padding: "8px 14px",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                  }}>
-                    <p style={{ fontWeight: "bold", color: "#374151", marginBottom: 2 }}>{d.name}</p>
-                    <p style={{ color: d.color, fontWeight: "900", fontSize: 16 }}>
-                      {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(d.value)}
-                    </p>
-                  </div>
-                );
-              }}
-            />
           </PieChart>
         </ResponsiveContainer>
 
-        {/* Etiqueta central — sin conflicto con tooltip */}
+        {/* Etiqueta central */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Egresos</p>
           <p className="text-2xl font-black text-gray-700">{fmt(totalOutflow)}</p>
