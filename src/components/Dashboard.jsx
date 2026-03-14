@@ -1,6 +1,6 @@
 // src/components/Dashboard.jsx
 import { useState, useCallback } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import {
   ShoppingCart, Heart, Home, Car, Zap,
   Wallet, CreditCard, Banknote, Loader2,
@@ -198,7 +198,7 @@ export default function Dashboard() {
       <BalanceCard summary={summary} />
 
       {/* Gráfico — FIX: sin Tooltip para evitar superposición con etiqueta central */}
-      <div className="relative h-64 w-full my-2">
+      <div className="relative h-52 w-full my-2">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -215,6 +215,27 @@ export default function Dashboard() {
                 <Cell key={i} fill={e.color} />
               ))}
             </Pie>
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0].payload;
+                if (!d.name) return null;
+                return (
+                  <div style={{
+                    background: "white",
+                    border: `2px solid ${d.color}`,
+                    borderRadius: 12,
+                    padding: "8px 14px",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  }}>
+                    <p style={{ fontWeight: "bold", color: "#374151", marginBottom: 2 }}>{d.name}</p>
+                    <p style={{ color: d.color, fontWeight: "900", fontSize: 16 }}>
+                      {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(d.value)}
+                    </p>
+                  </div>
+                );
+              }}
+            />
           </PieChart>
         </ResponsiveContainer>
 
