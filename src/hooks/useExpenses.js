@@ -2,27 +2,32 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   collection, addDoc, deleteDoc, doc,
-  onSnapshot, query, serverTimestamp,
+  onSnapshot, query, serverTimestamp, where,
 } from "firebase/firestore";
 import { db } from "../firebase";
 
 const COLLECTION = "expenses";
 
-export function useExpenses() {
+export function useExpenses(userId) {
   const [expenses, setExpenses] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
 
-  // ── Suscripción — filtramos el mes en el cliente (sin índice compuesto) ──
   useEffect(() => {
-    const q = query(collection(db, COLLECTION));
+    if (!userId) return;
+
+    const now   = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    // Filtramos por userId — cada usuario ve solo sus datos
+    const q = query(
+      collection(db, COLLECTION),
+      where("userId", "==", userId),
+    );
 
     const unsub = onSnapshot(q,
       (snap) => {
-        const now   = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-        const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-
         const docs = snap.docs
           .map((d) => ({
             id: d.id,
@@ -43,25 +48,23 @@ export function useExpenses() {
     );
 
     return unsub;
-  }, []);
+  }, [userId]);
 
-  // ── Agregar ──────────────────────────────────────────────────────────────
   const addExpense = useCallback(async ({ category, type, amount }) => {
     if (!category || !type || !(amount > 0)) throw new Error("Datos inválidos.");
     await addDoc(collection(db, COLLECTION), {
       category,
       type,
       amount: Number(amount),
+      userId,                      // ← guardamos el userId en cada documento
       date: serverTimestamp(),
     });
-  }, []);
+  }, [userId]);
 
-  // ── Eliminar ─────────────────────────────────────────────────────────────
   const deleteExpense = useCallback(async (id) => {
     await deleteDoc(doc(db, COLLECTION, id));
   }, []);
 
-  // ── Totales ───────────────────────────────────────────────────────────────
   const summary = useMemo(() => {
     const totalIncome   = expenses.filter((e) => e.type === "income").reduce((s, e) => s + e.amount, 0);
     const totalDebts    = expenses.filter((e) => e.type === "debt").reduce((s, e) => s + e.amount, 0);

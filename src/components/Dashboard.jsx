@@ -1,11 +1,13 @@
 // src/components/Dashboard.jsx
 import { useState, useCallback } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
   ShoppingCart, Heart, Home, Car, Zap,
   Wallet, CreditCard, Banknote, Loader2,
-  TrendingUp, TrendingDown, AlertCircle, Trash2, ChevronDown, ChevronUp,
+  TrendingUp, TrendingDown, AlertCircle, Trash2, ChevronDown, ChevronUp, LogOut,
 } from "lucide-react";
+import { signOut } from "firebase/auth";
+import { auth } from "../firebase";
 import { useExpenses } from "../hooks/useExpenses";
 import NumericKeyboard from "./NumericKeyboard";
 
@@ -30,17 +32,15 @@ const fmt = (n) =>
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString("es-AR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-// ─── Tooltip fijo (no flotante) ──────────────────────────────────────────────
+// ─── Tooltip fijo arriba del gráfico ─────────────────────────────────────────
 function FixedTooltip({ data }) {
-  if (!data) return (
-    <div className="h-8 mb-1" />
-  );
+  if (!data) return <div className="h-8 mb-1" />;
   return (
     <div className="flex items-center justify-center gap-2 mb-1 h-8">
       <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: data.color }} />
       <span className="font-bold text-gray-700 text-sm">{data.name}</span>
       <span className="font-black text-sm" style={{ color: data.color }}>
-        {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(data.value)}
+        {fmt(data.value)}
       </span>
     </div>
   );
@@ -82,9 +82,9 @@ function BalanceCard({ summary }) {
   );
 }
 
-// ─── Historial con botón eliminar ─────────────────────────────────────────────
+// ─── Historial ────────────────────────────────────────────────────────────────
 function History({ expenses, onDelete }) {
-  const [open,      setOpen]      = useState(false);
+  const [open,       setOpen]       = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
   const handleDelete = async (id) => {
@@ -96,7 +96,6 @@ function History({ expenses, onDelete }) {
 
   return (
     <div className="rounded-3xl border border-gray-100 overflow-hidden">
-      {/* Header toggle */}
       <button
         onClick={() => setOpen((p) => !p)}
         className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 active:bg-gray-100 transition-colors"
@@ -107,44 +106,31 @@ function History({ expenses, onDelete }) {
         {open ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
       </button>
 
-      {/* Lista */}
       {open && (
         <ul className="divide-y divide-gray-50">
           {expenses.map((e) => {
-            const Icon  = ICON_BY_LABEL[e.category] ?? Wallet;
-            const color = COLOR_BY_LABEL[e.category] ?? "#9ca3af";
+            const Icon       = ICON_BY_LABEL[e.category] ?? Wallet;
+            const color      = COLOR_BY_LABEL[e.category] ?? "#9ca3af";
             const isDeleting = deletingId === e.id;
-
             return (
               <li key={e.id} className={`flex items-center gap-3 px-4 py-3 transition-opacity ${isDeleting ? "opacity-40" : ""}`}>
-                {/* Ícono */}
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                   style={{ background: color + "18" }}>
                   <Icon size={18} style={{ color }} />
                 </span>
-
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-gray-800 text-sm truncate">{e.category}</p>
                   <p className="text-xs text-gray-400">{fmtDate(e.date)}</p>
                 </div>
-
-                {/* Monto */}
-                <p className="font-black text-sm flex-shrink-0" style={{ color }}>
-                  {fmt(e.amount)}
-                </p>
-
-                {/* Borrar */}
+                <p className="font-black text-sm flex-shrink-0" style={{ color }}>{fmt(e.amount)}</p>
                 <button
                   onClick={() => handleDelete(e.id)}
                   disabled={isDeleting}
                   aria-label="Eliminar registro"
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-400 hover:bg-red-50 active:scale-90 transition-all flex-shrink-0"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300
+                    hover:text-red-400 hover:bg-red-50 active:scale-90 transition-all flex-shrink-0"
                 >
-                  {isDeleting
-                    ? <Loader2 size={15} className="animate-spin" />
-                    : <Trash2 size={15} />
-                  }
+                  {isDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                 </button>
               </li>
             );
@@ -156,20 +142,20 @@ function History({ expenses, onDelete }) {
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-export default function Dashboard() {
-  const { summary, chartData, expenses, loading, error, addExpense, deleteExpense } = useExpenses();
+export default function Dashboard({ user }) {
+  const { summary, chartData, expenses, loading, error, addExpense, deleteExpense } = useExpenses(user.uid);
 
   const [activeCat,    setActiveCat]    = useState(null);
   const [saving,       setSaving]       = useState(false);
   const [toast,        setToast]        = useState(null);
   const [hoveredSlice, setHoveredSlice] = useState(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const showToast = (message, isError = false) => {
     setToast({ message, isError });
     setTimeout(() => setToast(null), 2800);
   };
 
-  // FIX: saving=true bloquea el botón mientras Firestore responde
   const handleSave = useCallback(async (amount) => {
     if (!activeCat || saving) return;
     setSaving(true);
@@ -184,7 +170,10 @@ export default function Dashboard() {
     }
   }, [activeCat, saving, addExpense]);
 
-  // Gráfico
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
+
   const enrichedChart = chartData.map((d) => ({ ...d, color: COLOR_BY_LABEL[d.name] ?? "#9ca3af" }));
   const hasData       = enrichedChart.length > 0;
   const totalOutflow  = summary.totalDebts + summary.totalExpenses;
@@ -193,7 +182,7 @@ export default function Dashboard() {
     <div className="flex flex-col min-h-screen bg-white pb-24 px-5"
       style={{ fontFamily: "'Georgia', serif" }}>
 
-      {/* Header */}
+      {/* ── Header con foto de perfil ── */}
       <header className="pt-10 pb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black text-gray-800">Control de Gastos</h1>
@@ -201,8 +190,55 @@ export default function Dashboard() {
             {new Date().toLocaleDateString("es-AR", { month: "long", year: "numeric" })}
           </p>
         </div>
-        {loading && <Loader2 size={24} className="text-gray-300 animate-spin" />}
+
+        <div className="flex items-center gap-2">
+          {loading && <Loader2 size={20} className="text-gray-300 animate-spin" />}
+
+          {/* Foto de perfil */}
+          <div className="relative">
+            <button
+              onClick={() => setShowUserMenu((p) => !p)}
+              className="focus:outline-none active:scale-95 transition-transform"
+              aria-label="Menú de usuario"
+            >
+              {user.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName}
+                  className="w-11 h-11 rounded-full border-2 border-white shadow-md object-cover"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-green-100 flex items-center justify-center
+                  border-2 border-white shadow-md text-green-600 font-black text-lg">
+                  {user.displayName?.[0] ?? "U"}
+                </div>
+              )}
+            </button>
+
+            {/* Menú desplegable */}
+            {showUserMenu && (
+              <div className="absolute right-0 top-14 bg-white rounded-2xl shadow-xl border border-gray-100
+                p-3 w-52 z-40">
+                <p className="font-bold text-gray-800 text-sm px-2 truncate">{user.displayName}</p>
+                <p className="text-xs text-gray-400 px-2 mb-2 truncate">{user.email}</p>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl
+                    text-red-500 font-bold text-sm hover:bg-red-50 active:scale-95 transition-all"
+                >
+                  <LogOut size={16} />
+                  Cerrar sesión
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </header>
+
+      {/* Backdrop para cerrar menú */}
+      {showUserMenu && (
+        <div className="fixed inset-0 z-30" onClick={() => setShowUserMenu(false)} />
+      )}
 
       {error && (
         <div className="flex items-center gap-2 bg-red-50 border border-red-100 text-red-600
@@ -214,7 +250,7 @@ export default function Dashboard() {
       {/* Balance */}
       <BalanceCard summary={summary} />
 
-      {/* Tooltip fijo arriba del gráfico — sin superposición */}
+      {/* Tooltip fijo */}
       <FixedTooltip data={hoveredSlice} />
 
       {/* Gráfico */}
@@ -239,15 +275,13 @@ export default function Dashboard() {
             </Pie>
           </PieChart>
         </ResponsiveContainer>
-
-        {/* Etiqueta central */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Egresos</p>
           <p className="text-2xl font-black text-gray-700">{fmt(totalOutflow)}</p>
         </div>
       </div>
 
-      {/* Leyenda del gráfico */}
+      {/* Leyenda */}
       {hasData && (
         <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mb-3">
           {enrichedChart.map((d) => (
@@ -259,7 +293,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Botones de categorías */}
+      {/* Botones categorías */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         {CATEGORIES.map(({ id, label, Icon, color, type }) => (
           <button
@@ -277,10 +311,10 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Historial con botón eliminar */}
+      {/* Historial */}
       <History expenses={expenses} onDelete={deleteExpense} />
 
-      {/* Teclado — le pasamos `saving` para bloquear el botón */}
+      {/* Teclado */}
       {activeCat && (
         <NumericKeyboard
           category={activeCat}
